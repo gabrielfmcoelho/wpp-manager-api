@@ -1,11 +1,9 @@
-version: "3.9"
-
 services:
   api:
     build: .
     container_name: whatsapp-api
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -18,12 +16,6 @@ services:
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-whatsapp-management-api}
       - DEBUG=${DEBUG:-false}
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
 
   message-consumer:
     build: .
