@@ -1,0 +1,84 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    container_name: whatsapp-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - WHATSAPP_API_URL=${WHATSAPP_API_URL:-https://wpp.inovadata.tech}
+      - WHATSAPP_API_USER=${WHATSAPP_API_USER}
+      - WHATSAPP_API_PASSWORD=${WHATSAPP_API_PASSWORD}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-whatsapp-management-api}
+      - DEBUG=${DEBUG:-false}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  message-consumer:
+    build: .
+    container_name: whatsapp-message-consumer
+    command: python -m app.workers.message_consumer
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - WHATSAPP_API_URL=${WHATSAPP_API_URL:-https://wpp.inovadata.tech}
+      - WHATSAPP_API_USER=${WHATSAPP_API_USER}
+      - WHATSAPP_API_PASSWORD=${WHATSAPP_API_PASSWORD}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-whatsapp-message-consumer}
+      - DEBUG=${DEBUG:-false}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+  scheduler:
+    build: .
+    container_name: whatsapp-scheduler
+    command: python -m app.workers.scheduler_worker
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - WHATSAPP_API_URL=${WHATSAPP_API_URL:-https://wpp.inovadata.tech}
+      - WHATSAPP_API_USER=${WHATSAPP_API_USER}
+      - WHATSAPP_API_PASSWORD=${WHATSAPP_API_PASSWORD}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-whatsapp-scheduler}
+      - DEBUG=${DEBUG:-false}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+  websocket-listener:
+    build: .
+    container_name: whatsapp-websocket-listener
+    command: python -m app.workers.websocket_listener
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - WHATSAPP_API_URL=${WHATSAPP_API_URL:-https://wpp.inovadata.tech}
+      - WHATSAPP_API_USER=${WHATSAPP_API_USER}
+      - WHATSAPP_API_PASSWORD=${WHATSAPP_API_PASSWORD}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-whatsapp-websocket-listener}
+      - DEBUG=${DEBUG:-false}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
