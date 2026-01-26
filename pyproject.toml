@@ -24,6 +24,7 @@ dependencies = [
     "websockets>=13.0.0",
     "PyJWT[crypto]>=2.9.0",
     "cachetools>=5.5.0",
+    "openai>=2.15.0",
 ]
 
 [project.optional-dependencies]
