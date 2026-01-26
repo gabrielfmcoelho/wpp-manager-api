@@ -33,9 +33,6 @@ services:
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-whatsapp-message-consumer}
       - DEBUG=${DEBUG:-false}
     restart: unless-stopped
-    depends_on:
-      api:
-        condition: service_healthy
 
   scheduler:
     build: .
@@ -52,9 +49,6 @@ services:
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-whatsapp-scheduler}
       - DEBUG=${DEBUG:-false}
     restart: unless-stopped
-    depends_on:
-      api:
-        condition: service_healthy
 
   websocket-listener:
     build: .
@@ -71,6 +65,3 @@ services:
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-whatsapp-websocket-listener}
       - DEBUG=${DEBUG:-false}
     restart: unless-stopped
-    depends_on:
-      api:
-        condition: service_healthy
