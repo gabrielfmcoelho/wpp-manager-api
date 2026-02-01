@@ -37,7 +37,12 @@ class SubscriptionOptinAgent(BaseAgent):
         "schedule_time": "09:00",
         "scheduled_message_template": "Good morning! Here's your daily update...",
         "allowed_contacts": ["contact-uuid-1", "contact-uuid-2"],
-        "ignore_groups": true
+        "ignore_groups": true,
+
+        # NEW: MinIO bucket integration (like video_distributor)
+        "scheduled_content_type": "video",  # text | image | video
+        "media_bucket_name": "videos",      # MinIO bucket to pull random media from
+        "caption_template": "Check out today's tip! {{media_name}}"  # Caption template
     }
     """
 
@@ -79,6 +84,14 @@ class SubscriptionOptinAgent(BaseAgent):
             "Good morning! Here's your daily update...",
         )
         self.ignore_groups = config.get("ignore_groups", True)
+
+        # MinIO bucket integration for media (like video_distributor)
+        self.scheduled_content_type = config.get("scheduled_content_type", "text")
+        self.media_bucket_name = config.get("media_bucket_name")
+        self.caption_template = config.get(
+            "caption_template",
+            "Check out today's content!",
+        )
 
         # Compile patterns
         self._yes_compiled = [
@@ -162,6 +175,10 @@ class SubscriptionOptinAgent(BaseAgent):
                     "days": self.schedule_days,
                     "time": self.schedule_time,
                     "template": self.scheduled_message_template,
+                    # MinIO media support
+                    "content_type": self.scheduled_content_type,
+                    "media_bucket_name": self.media_bucket_name,
+                    "caption_template": self.caption_template,
                 },
             }
             return (self.yes_confirmation, new_state, True)

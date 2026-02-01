@@ -1,6 +1,7 @@
 """Agent runner service for orchestrating message processing agents."""
 
 import logging
+import random
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -15,7 +16,9 @@ from app.db.repositories import (
     ScheduledMessageRepository,
 )
 from app.db.repositories.conversation import ConversationRepository
+from app.db.repositories.video_send_history import VideoSendHistoryRepository
 from app.services.llm_service import LLMService
+from app.services.minio_client import get_minio_client
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +134,8 @@ async def run_agents(
                         device_id,
                         contact_id,
                         schedule_config,
+                        agent_id=agent_config.id,
+                        db=db,
                     )
                     logger.info(
                         f"Created subscription schedules for contact {contact_id}"
@@ -168,6 +173,8 @@ async def _create_subscription_schedules(
     device_id: UUID,
     contact_id: UUID,
     config: dict[str, Any],
+    agent_id: UUID | None = None,
+    db: AsyncSession | None = None,
 ) -> int:
     """Create scheduled messages for a subscription.
 
@@ -175,7 +182,9 @@ async def _create_subscription_schedules(
         schedule_repo: The scheduled message repository
         device_id: The device ID
         contact_id: The contact ID
-        config: Schedule configuration with days, time, and template
+        config: Schedule configuration with days, time, template, and media settings
+        agent_id: Optional agent ID for media history tracking
+        db: Optional database session for history tracking
 
     Returns:
         Number of schedules created
@@ -183,6 +192,11 @@ async def _create_subscription_schedules(
     days = config.get("days", 30)
     time_str = config.get("time", "09:00")
     template = config.get("template", "Good morning! Here's your daily update...")
+
+    # Media configuration (new)
+    content_type = config.get("content_type", "text")
+    media_bucket_name = config.get("media_bucket_name")
+    caption_template = config.get("caption_template", "Check out today's content!")
 
     # Parse time
     try:
@@ -198,22 +212,129 @@ async def _create_subscription_schedules(
     if base_date <= now:
         base_date += timedelta(days=1)
 
+    # Get media files from MinIO if media bucket is configured
+    all_media_files: list[str] = []
+    minio_client = None
+    history_repo = None
+
+    if media_bucket_name and content_type != "text":
+        try:
+            minio_client = get_minio_client()
+            all_media_files = minio_client.get_video_filenames(media_bucket_name)
+            logger.info(
+                f"Found {len(all_media_files)} media files in bucket {media_bucket_name}"
+            )
+
+            # Initialize history repo if we have agent_id and db
+            if agent_id and db:
+                history_repo = VideoSendHistoryRepository(db)
+        except Exception as e:
+            logger.error(f"Error accessing MinIO bucket {media_bucket_name}: {e}")
+            # Fall back to text-only mode
+            content_type = "text"
+            all_media_files = []
+
     created_count = 0
     for day_offset in range(days):
         scheduled_at = base_date + timedelta(days=day_offset)
+
+        # Determine content and media URL for this schedule
+        message_content = template
+        media_url = None
+
+        if all_media_files and minio_client and content_type != "text":
+            # Select random media from bucket
+            selected_media, should_reset = await _select_random_media(
+                agent_id=agent_id,
+                contact_id=contact_id,
+                all_media=all_media_files,
+                history_repo=history_repo,
+            )
+
+            if selected_media:
+                # Generate presigned URL (24 hour expiry for scheduled messages)
+                media_url = minio_client.get_presigned_url(
+                    media_bucket_name,
+                    selected_media,
+                    expires=timedelta(hours=24 + day_offset * 24),
+                )
+
+                # Format caption with media name
+                media_name = (
+                    selected_media.rsplit(".", 1)[0]
+                    if "." in selected_media
+                    else selected_media
+                )
+                message_content = caption_template.replace("{{media_name}}", media_name)
+                message_content = message_content.replace(
+                    "{{media_filename}}", selected_media
+                )
+
+                # Record in history if available
+                if history_repo and agent_id:
+                    if should_reset:
+                        await history_repo.reset_history_for_contact(agent_id, contact_id)
+                    await history_repo.record_video_sent(
+                        agent_id, contact_id, selected_media
+                    )
 
         await schedule_repo.create(
             device_id=device_id,
             contact_id=contact_id,
             scheduled_at=scheduled_at,
-            content_type="text",
-            content=template,
+            content_type=content_type if media_url else "text",
+            content=message_content,
+            media_url=media_url,
             is_recurring=False,
         )
         created_count += 1
 
     logger.info(
         f"Created {created_count} scheduled messages for contact {contact_id} "
-        f"starting at {base_date}"
+        f"starting at {base_date} (content_type={content_type})"
     )
     return created_count
+
+
+async def _select_random_media(
+    agent_id: UUID | None,
+    contact_id: UUID,
+    all_media: list[str],
+    history_repo: VideoSendHistoryRepository | None,
+) -> tuple[str | None, bool]:
+    """Select a random media file that hasn't been sent to this contact.
+
+    Args:
+        agent_id: The agent's UUID for history tracking
+        contact_id: The contact's UUID
+        all_media: List of all available media filenames
+        history_repo: Optional history repository for tracking
+
+    Returns:
+        Tuple of (selected_media, should_reset_history)
+    """
+    if not all_media:
+        return (None, False)
+
+    # Get sent media from history if available
+    sent_media: list[str] = []
+    if history_repo and agent_id:
+        try:
+            sent_media = await history_repo.get_sent_videos_for_contact(
+                agent_id, contact_id
+            )
+        except Exception as e:
+            logger.warning(f"Error getting media history: {e}")
+
+    # Find media not yet sent
+    available = [m for m in all_media if m not in sent_media]
+
+    # If all media have been sent, reset and pick from all
+    should_reset = False
+    if not available:
+        available = all_media
+        should_reset = True
+
+    # Select random media
+    selected = random.choice(available)
+    return (selected, should_reset)
