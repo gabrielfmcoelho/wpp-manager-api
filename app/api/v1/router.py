@@ -10,6 +10,7 @@ from app.api.v1 import (
     devices,
     ignore_rules,
     messages,
+    minio,
     schedules,
     settings,
     users,
@@ -30,3 +31,4 @@ api_router.include_router(ignore_rules.router)
 api_router.include_router(settings.router)
 api_router.include_router(webhooks.router)
 api_router.include_router(debug.router)
+api_router.include_router(minio.router)

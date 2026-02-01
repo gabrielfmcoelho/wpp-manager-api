@@ -11,6 +11,8 @@ from app.models.message import Message, MessageDirection, MessageStatus
 from app.models.scheduled_message import ScheduledMessage
 from app.models.user import User
 from app.models.user_device import DeviceRole, UserDevice
+from app.models.video_distribution_job import VideoDistributionJob
+from app.models.video_send_history import VideoSendHistory
 
 __all__ = [
     "Agent",
@@ -28,4 +30,6 @@ __all__ = [
     "ScheduledMessage",
     "User",
     "UserDevice",
+    "VideoDistributionJob",
+    "VideoSendHistory",
 ]

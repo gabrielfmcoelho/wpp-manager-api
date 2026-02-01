@@ -4,6 +4,7 @@ from app.agents.base import AgentResponse, BaseAgent
 from app.agents.langgraph_agent import LangGraphAgent
 from app.agents.rule_based import RuleBasedAgent
 from app.agents.subscription_optin import SubscriptionOptinAgent
+from app.agents.video_distributor import VideoDistributorAgent
 
 __all__ = [
     "AgentResponse",
@@ -11,4 +12,5 @@ __all__ = [
     "RuleBasedAgent",
     "LangGraphAgent",
     "SubscriptionOptinAgent",
+    "VideoDistributorAgent",
 ]

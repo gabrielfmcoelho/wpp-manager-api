@@ -11,6 +11,8 @@ from app.db.repositories.ignore_rule import IgnoreRuleRepository
 from app.db.repositories.message import MessageRepository
 from app.db.repositories.scheduled_message import ScheduledMessageRepository
 from app.db.repositories.user_device import UserDeviceRepository
+from app.db.repositories.video_distribution_job import VideoDistributionJobRepository
+from app.db.repositories.video_send_history import VideoSendHistoryRepository
 
 __all__ = [
     "BaseRepository",
@@ -24,4 +26,6 @@ __all__ = [
     "IgnoreRuleRepository",
     "ApiKeyRepository",
     "UserDeviceRepository",
+    "VideoDistributionJobRepository",
+    "VideoSendHistoryRepository",
 ]

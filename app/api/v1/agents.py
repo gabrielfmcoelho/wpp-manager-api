@@ -1,17 +1,27 @@
 """Agent management endpoints."""
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel
 
 from app.api.deps import CurrentAuthContext, DbSession
 from app.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
-from app.db.repositories import AgentRepository
+from app.db.repositories import AgentRepository, VideoDistributionJobRepository
 from app.schemas import AgentCreate, AgentDetail, AgentList, AgentUpdate
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
-VALID_AGENT_TYPES = ["langgraph", "rule_based", "subscription_optin"]
+VALID_AGENT_TYPES = ["langgraph", "rule_based", "subscription_optin", "video_distributor"]
+
+
+class DistributeNowResponse(BaseModel):
+    """Response from distribute-now endpoint."""
+
+    agent_id: str
+    message: str
+    next_run_at: str
 
 
 def _get_device_id(auth: CurrentAuthContext, device_id: UUID | None) -> UUID:
@@ -94,6 +104,15 @@ async def create_agent(
         config=data.config,
         priority=data.priority,
     )
+
+    # Create distribution job for video_distributor agents
+    if data.agent_type == "video_distributor":
+        job_repo = VideoDistributionJobRepository(db)
+        interval_hours = data.config.get("interval_hours", 24) if data.config else 24
+        from datetime import timedelta
+        next_run = datetime.now(timezone.utc) + timedelta(hours=interval_hours)
+        await job_repo.get_or_create(agent.id, initial_next_run=next_run)
+
     return agent
 
 
@@ -160,3 +179,49 @@ async def delete_agent(
         raise NotFoundError("Agent", str(agent_id))
 
     await repo.delete(agent)
+
+
+@router.post("/{agent_id}/distribute-now", response_model=DistributeNowResponse)
+async def distribute_now(
+    agent_id: UUID,
+    db: DbSession,
+    auth: CurrentAuthContext,
+):
+    """Trigger immediate video distribution for a video_distributor agent.
+
+    This sets the next_run_at to now, causing the worker to process it
+    on its next check cycle.
+    """
+    agent_repo = AgentRepository(db)
+    job_repo = VideoDistributionJobRepository(db)
+
+    # Find agent and verify access
+    agent = None
+    for device_id in auth.device_ids:
+        agent = await agent_repo.get_by_device(device_id, agent_id)
+        if agent:
+            break
+
+    if not agent:
+        raise NotFoundError("Agent", str(agent_id))
+
+    # Verify it's a video_distributor agent
+    if agent.agent_type != "video_distributor":
+        raise BadRequestError("This endpoint only works with video_distributor agents")
+
+    # Get or create the distribution job
+    now = datetime.now(timezone.utc)
+    job = await job_repo.get_or_create(agent.id, initial_next_run=now)
+
+    # Set next_run_at to now to trigger immediate distribution
+    await job_repo.update_run_times(
+        job,
+        last_run=job.last_run_at or now,
+        next_run=now,
+    )
+
+    return DistributeNowResponse(
+        agent_id=str(agent.id),
+        message="Distribution scheduled for immediate execution",
+        next_run_at=now.isoformat(),
+    )
